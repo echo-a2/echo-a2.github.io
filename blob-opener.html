@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure File Viewer</title>
+
+</head>
+<body>
+    <div>
+        <h1>Secure File Viewer</h1>
+        <p>Open files safely with blob URLs and sandboxing</p>
+        
+        <div>
+            <label for="fileInput">
+                <div>Click to select a file or drag & drop</div>
+                <div id="fileName"></div>
+            </label>
+            <input type="file" id="fileInput">
+        </div>
+        
+        <div>
+            <label>
+                <input type="radio" name="mode" value="standard" checked>
+                Standard Mode - Open in new tab with blob URL
+            </label>
+            
+            <label>
+                <input type="radio" name="mode" value="sandbox">
+                Sandboxed Mode - Embed in about:blank (more secure)
+            </label>
+        </div>
+        
+        <div>
+            <button id="openBtn" disabled>Open File</button>
+            <button id="resetBtn" disabled>Clear</button>
+        </div>
+        
+        <div id="status"></div>
+        <div id="fileInfo"></div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const openBtn = document.getElementById('openBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const status = document.getElementById('status');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileLabel = fileInput.parentElement.querySelector('label');
+
+        // Handle file selection
+        fileInput.addEventListener('change', handleFileSelect);
+
+        // Drag and drop
+        fileLabel.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        fileLabel.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        });
+
+        function handleFileSelect() {
+            selectedFile = fileInput.files[0];
+            
+            if (selectedFile) {
+                fileName.textContent = selectedFile.name;
+                fileInfo.innerHTML = `
+                    <strong>File:</strong> ${selectedFile.name}<br>
+                    <strong>Size:</strong> ${(selectedFile.size / 1024).toFixed(2)} KB<br>
+                    <strong>Type:</strong> ${selectedFile.type || 'Unknown'}
+                `;
+                openBtn.disabled = false;
+                resetBtn.disabled = false;
+                clearStatus();
+            }
+        }
+
+        openBtn.addEventListener('click', () => {
+            if (!selectedFile) return;
+
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const blobUrl = URL.createObjectURL(selectedFile);
+
+            try {
+                if (mode === 'sandbox') {
+                    openInSandbox(blobUrl, selectedFile.type);
+                    showStatus(`Opening in sandboxed mode (about:blank)...`, 'success');
+                } else {
+                    window.open(blobUrl, '_blank');
+                    showStatus(`Opening in standard mode...`, 'success');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        });
+
+        function openInSandbox(blobUrl, fileType) {
+            const sandboxWindow = window.open('about:blank', '_blank');
+            
+            if (!sandboxWindow) {
+                throw new Error('Unable to open new window. Check popup blocker settings.');
+            }
+
+            // Determine if it's a text-based file
+            const isTextFile = fileType.startsWith('text/') || 
+                             fileType.includes('javascript') || 
+                             fileType.includes('json') ||
+                             fileType.includes('xml') ||
+                             fileType.includes('html');
+
+            let html;
+            if (isTextFile) {
+                // For text files, fetch and display as text
+                html = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>File Viewer (Sandboxed)</title>
+                    </head>
+                    <body>
+                        <p>File opened in sandboxed mode (about:blank)</p>
+                        <pre id="content">Loading...</pre>
+                        <script>
+                            fetch('${blobUrl}')
+                                .then(r => r.text())
+                                .then(text => {
+                                    document.getElementById('content').textContent = text;
+                                })
+                                .catch(err => {
+                                    document.getElementById('content').textContent = 'Error loading file: ' + err.message;
+                                });
+                        <\/script>
+                    </body>
+                    </html>
+                `;
+            } else {
+                // For binary files (images, PDFs, etc.), embed as iframe or object
+                html = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>File Viewer (Sandboxed)</title>
+                    </head>
+                    <body>
+                        <p>File opened in sandboxed mode (about:blank)</p>
+                        <iframe src="${blobUrl}" title="File Viewer" style="width:100%;height:80vh;border:none;"></iframe>
+                    </body>
+                    </html>
+                `;
+            }
+
+            sandboxWindow.document.write(html);
+            sandboxWindow.document.close();
+        }
+
+        resetBtn.addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            fileName.textContent = '';
+            fileInfo.innerHTML = '';
+            openBtn.disabled = true;
+            resetBtn.disabled = true;
+            clearStatus();
+        });
+
+        function showStatus(message, type) {
+            status.textContent = `[${type}] ${message}`;
+        }
+
+        function clearStatus() {
+            status.textContent = '';
+        }
+    </script>
+</body>
+</html>
