@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blob</title>
-
+    <title>Secure File Viewer</title>
 </head>
 <body>
     <div>
-        <h1>Blob Opener</h1>
+        <h1>Secure File Viewer</h1>
         <p>Open files safely with blob URLs and sandboxing</p>
-        
+
         <div>
             <label for="fileInput">
                 <div>Click to select a file or drag & drop</div>
@@ -18,30 +17,31 @@
             </label>
             <input type="file" id="fileInput">
         </div>
-        
+
         <div>
             <label>
                 <input type="radio" name="mode" value="standard" checked>
                 Standard Mode - Open in new tab with blob URL
             </label>
-            
+
             <label>
                 <input type="radio" name="mode" value="sandbox">
-                Sandboxed Mode - Embed in about:blank (may not work)
+                Sandboxed Mode - Embed in about:blank (more secure)
             </label>
         </div>
-        
+
         <div>
             <button id="openBtn" disabled>Open File</button>
             <button id="resetBtn" disabled>Clear</button>
         </div>
-        
+
         <div id="status"></div>
         <div id="fileInfo"></div>
     </div>
 
     <script>
         let selectedFile = null;
+        const blobUrls = [];
 
         const fileInput = document.getElementById('fileInput');
         const fileName = document.getElementById('fileName');
@@ -51,10 +51,10 @@
         const fileInfo = document.getElementById('fileInfo');
         const fileLabel = fileInput.parentElement.querySelector('label');
 
-        // Handle file selection
-        fileInput.addEventListener('change', handleFileSelect);
+        fileInput.addEventListener('change', () => {
+            setSelectedFile(fileInput.files[0]);
+        });
 
-        // Drag and drop
         fileLabel.addEventListener('dragover', (e) => {
             e.preventDefault();
         });
@@ -62,14 +62,13 @@
         fileLabel.addEventListener('drop', (e) => {
             e.preventDefault();
             if (e.dataTransfer.files.length) {
-                fileInput.files = e.dataTransfer.files;
-                handleFileSelect();
+                setSelectedFile(e.dataTransfer.files[0]);
             }
         });
 
-        function handleFileSelect() {
-            selectedFile = fileInput.files[0];
-            
+        function setSelectedFile(file) {
+            selectedFile = file || null;
+
             if (selectedFile) {
                 fileName.textContent = selectedFile.name;
                 fileInfo.innerHTML = `
@@ -87,64 +86,78 @@
             if (!selectedFile) return;
 
             const mode = document.querySelector('input[name="mode"]:checked').value;
-            const blobUrl = URL.createObjectURL(selectedFile);
 
             try {
                 if (mode === 'sandbox') {
-                    openInSandbox(blobUrl, selectedFile.type);
-                    showStatus(`Opening in sandboxed mode (about:blank)...`, 'success');
+                    openInSandbox(selectedFile);
+                    showStatus('Opening in sandboxed mode (about:blank)...', 'success');
                 } else {
-                    window.open(blobUrl, '_blank');
-                    showStatus(`Opening in standard mode...`, 'success');
+                    openInStandardMode(selectedFile);
+                    showStatus('Opening in standard mode...', 'success');
                 }
             } catch (error) {
                 showStatus(`Error: ${error.message}`, 'error');
             }
         });
 
-        function openInSandbox(blobUrl, fileType) {
+        // Opens a blank tab first (inherits this page's origin), then navigates
+        // it to the blob URL. Passing the blob URL straight into window.open()
+        // creates a fresh browsing context that doesn't resolve blob: URLs
+        // reliably (this is what causes "blob:null" failures, especially when
+        // this file is opened directly from disk via file://).
+        function openInStandardMode(file) {
+            const blobUrl = URL.createObjectURL(file);
+            blobUrls.push(blobUrl);
+
+            const win = window.open('about:blank', '_blank');
+            if (!win) {
+                throw new Error('Unable to open new window. Check popup blocker settings.');
+            }
+            win.location.href = blobUrl;
+        }
+
+        function openInSandbox(file) {
             const sandboxWindow = window.open('about:blank', '_blank');
-            
+
             if (!sandboxWindow) {
                 throw new Error('Unable to open new window. Check popup blocker settings.');
             }
 
-            // Determine if it's a text-based file
-            const isTextFile = fileType.startsWith('text/') || 
-                             fileType.includes('javascript') || 
-                             fileType.includes('json') ||
-                             fileType.includes('xml') ||
-                             fileType.includes('html');
+            const isTextFile = file.type.startsWith('text/') ||
+                             file.type.includes('javascript') ||
+                             file.type.includes('json') ||
+                             file.type.includes('xml') ||
+                             file.type.includes('html');
 
-            let html;
             if (isTextFile) {
-                // For text files, fetch and display as text
-                html = `
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset="UTF-8">
-                        <title>File Viewer (Sandboxed)</title>
-                    </head>
-                    <body>
-                        <p>File opened in sandboxed mode (about:blank)</p>
-                        <pre id="content">Loading...</pre>
-                        <script>
-                            fetch('${blobUrl}')
-                                .then(r => r.text())
-                                .then(text => {
-                                    document.getElementById('content').textContent = text;
-                                })
-                                .catch(err => {
-                                    document.getElementById('content').textContent = 'Error loading file: ' + err.message;
-                                });
-                        <\/script>
-                    </body>
-                    </html>
-                `;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const html = `
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="UTF-8">
+                            <title>File Viewer (Sandboxed)</title>
+                        </head>
+                        <body>
+                            <p>File opened in sandboxed mode (about:blank)</p>
+                            <pre>${escapeHtml(e.target.result)}</pre>
+                        </body>
+                        </html>
+                    `;
+                    sandboxWindow.document.write(html);
+                    sandboxWindow.document.close();
+                };
+                reader.onerror = () => {
+                    sandboxWindow.document.write('Error reading file.');
+                    sandboxWindow.document.close();
+                };
+                reader.readAsText(file);
             } else {
-                // For binary files (images, PDFs, etc.), embed as iframe or object
-                html = `
+                const blobUrl = URL.createObjectURL(file);
+                blobUrls.push(blobUrl);
+
+                const html = `
                     <!DOCTYPE html>
                     <html>
                     <head>
@@ -157,10 +170,15 @@
                     </body>
                     </html>
                 `;
+                sandboxWindow.document.write(html);
+                sandboxWindow.document.close();
             }
+        }
 
-            sandboxWindow.document.write(html);
-            sandboxWindow.document.close();
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         resetBtn.addEventListener('click', () => {
@@ -180,6 +198,11 @@
         function clearStatus() {
             status.textContent = '';
         }
+
+        // Release all blob URLs when this page is closed/navigated away from.
+        window.addEventListener('beforeunload', () => {
+            blobUrls.forEach(url => URL.revokeObjectURL(url));
+        });
     </script>
 </body>
 </html>
