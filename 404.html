@@ -15,26 +15,46 @@
 <script>
 /*
   Save as 404.html in the repo root. GitHub Pages serves it for any URL with no real file:
-    yoursite.github.io/repo/blob-opener   ->  loads blob-opener.html
-    yoursite.github.io/repo/mindustry     ->  loads mindustry.html (or games/mindustry.html)
+    yoursite.github.io/mindustry              -> loads games/mindustry.html,
+                                                 and the address bar becomes /mindustry-aB3dE9fGh2
+    yoursite.github.io/mindustry-aB3dE9fGh2   -> still loads games/mindustry.html (suffix is ignored)
   Your index.html is not touched.
 
   BASE    = the folder your site lives in.
             Project site (user.github.io/repo/)  -> "/repo/"
             User site or custom domain (root)    -> "/"
   FOLDERS = places to look for <name>.html, in order. "" is the repo root.
-            Add folders here as you organise things (e.g. "games/", "tools/").
-  Query strings and #hashes are passed through to the loaded page, so
-  /url-redirector?u=... still reaches url-redirector.html.
+  Query strings and #hashes are passed through to the loaded page.
 */
 const BASE = "/";                       // <-- "/your-repo-name/" for a project site
 const FOLDERS = ["", "games/", "tools/"];
+const ID_LEN = 10;
+const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-function getName() {
+function randomId() {
+  let out = "";
+  const buf = new Uint8Array(32);
+  while (out.length < ID_LEN) {
+    crypto.getRandomValues(buf);
+    for (const b of buf) {
+      if (b < 248 && out.length < ID_LEN) out += CHARS[b % 62];  // 248 = 62*4, avoids bias
+    }
+  }
+  return out;
+}
+
+// Returns the names to try, in order. The full name is tried first so a real
+// page like "url-redirector" isn't mistaken for "name + 10-character id".
+function getCandidates() {
   let path = location.pathname;
   if (path.startsWith(BASE)) path = path.slice(BASE.length);
   path = path.replace(/^\/+|\/+$/g, "").replace(/\.html$/i, "");
-  return path.split("/")[0];
+  const seg = path.split("/")[0];
+  const clean = s => s.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  const list = [{ name: clean(seg), hasId: false }];
+  const m = seg.match(/^(.+)-([A-Za-z0-9]{10})$/);
+  if (m) list.push({ name: clean(m[1]), hasId: true });
+  return list;
 }
 
 async function exists(url) {
@@ -44,22 +64,25 @@ async function exists(url) {
 
 async function load() {
   const msg = document.getElementById("msg");
-  const name = getName().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-  if (!name || name === "404" || name === "index") { msg.textContent = "Page not found"; return; }
-
-  for (const folder of FOLDERS) {
-    const file = BASE + folder + name + ".html";
-    if (await exists(file)) {
-      document.title = name;
-      const frame = document.createElement("iframe");
-      frame.src = file + location.search + location.hash;
-      frame.allow = "fullscreen; autoplay; gamepad; clipboard-write; encrypted-media; picture-in-picture";
-      frame.allowFullscreen = true;
-      document.body.replaceChildren(frame);
-      return;
+  for (const { name, hasId } of getCandidates()) {
+    if (!name || name === "404" || name === "index") continue;
+    for (const folder of FOLDERS) {
+      const file = BASE + folder + name + ".html";
+      if (await exists(file)) {
+        document.title = name;
+        if (!hasId) {
+          history.replaceState(null, "", BASE + name + "-" + randomId() + location.search + location.hash);
+        }
+        const frame = document.createElement("iframe");
+        frame.src = file + location.search + location.hash;
+        frame.allow = "fullscreen; autoplay; gamepad; clipboard-write; encrypted-media; picture-in-picture";
+        frame.allowFullscreen = true;
+        document.body.replaceChildren(frame);
+        return;
+      }
     }
   }
-  msg.textContent = "Couldn't find " + name + ".html";
+  msg.textContent = "Page not found";
 }
 load();
 </script>
