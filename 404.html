@@ -14,6 +14,9 @@
                                                  and the address bar becomes /mindustry-aB3dE9fGh2
     yoursite.github.io/mindustry-aB3dE9fGh2   -> still loads the same page (suffix is ignored)
 
+  Before a game loads, a "press ok" box appears. OK loads it; Cancel leaves a
+  blank white page and nothing is downloaded or loaded.
+
   No stylesheet: the page is plain unstyled text. The only styling is the
   inline position/size on the iframe, which it needs to fill the window.
 
@@ -80,18 +83,23 @@ async function load() {
     if (!name || name === "404" || name === "index") continue;
     for (const folder of FOLDERS) {
       const file = BASE + folder + name + ".html";
-      let src = null;
-      try {
-        if (await exists(file)) {
-          src = file + location.search + location.hash;
-        } else if (await exists(file + ".gz")) {
-          src = (await loadGzip(file + ".gz")) + location.hash;
+      let kind = null;
+      if (await exists(file)) kind = "html";
+      else if (await exists(file + ".gz")) kind = "gz";
+      if (kind) {
+        if (!confirm("press ok")) {
+          document.body.replaceChildren();   // cancelled: blank white page, nothing loads
+          return;
         }
-      } catch (e) {
-        msg.textContent = "error: " + e.message;
-        return;
-      }
-      if (src) {
+        let src;
+        try {
+          src = kind === "html"
+            ? file + location.search + location.hash
+            : (await loadGzip(file + ".gz")) + location.hash;
+        } catch (e) {
+          msg.textContent = "error: " + e.message;
+          return;
+        }
         document.title = name;
         if (!hasId) {
           history.replaceState(null, "", BASE + name + "-" + randomId() + location.search + location.hash);
