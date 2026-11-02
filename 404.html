@@ -14,8 +14,9 @@
                                                  and the address bar becomes /mindustry-aB3dE9fGh2
     yoursite.github.io/mindustry-aB3dE9fGh2   -> still loads the same page (suffix is ignored)
 
-  Before a game loads, a "press ok" box appears. OK loads it; Cancel leaves a
-  blank white page and nothing is downloaded or loaded.
+  Order: the random string is added to the address bar first, then a "press ok"
+  box appears. OK loads the game; Cancel leaves a blank white page (the URL keeps
+  its random string) and nothing is downloaded or loaded.
 
   No stylesheet: the page is plain unstyled text. The only styling is the
   inline position/size on the iframe, which it needs to fill the window.
@@ -87,6 +88,10 @@ async function load() {
       if (await exists(file)) kind = "html";
       else if (await exists(file + ".gz")) kind = "gz";
       if (kind) {
+        if (!hasId) {
+          history.replaceState(null, "", BASE + name + "-" + randomId() + location.search + location.hash);
+        }
+        await new Promise(r => setTimeout(r, 50));   // let the address bar update before the box blocks the page
         if (!confirm("press ok")) {
           document.body.replaceChildren();   // cancelled: blank white page, nothing loads
           return;
@@ -101,9 +106,6 @@ async function load() {
           return;
         }
         document.title = name;
-        if (!hasId) {
-          history.replaceState(null, "", BASE + name + "-" + randomId() + location.search + location.hash);
-        }
         const frame = document.createElement("iframe");
         frame.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;border:0";
         frame.allow = "fullscreen; autoplay; gamepad; clipboard-write; encrypted-media; picture-in-picture";
