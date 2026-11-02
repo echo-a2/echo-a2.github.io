@@ -15,16 +15,17 @@
 <script>
 /*
   Save as 404.html in the repo root. GitHub Pages serves it for any URL with no real file:
-    yoursite.github.io/mindustry              -> loads games/mindustry.html,
+    yoursite.github.io/mindustry              -> loads games/mindustry.html (or games/mindustry.html.gz),
                                                  and the address bar becomes /mindustry-aB3dE9fGh2
-    yoursite.github.io/mindustry-aB3dE9fGh2   -> still loads games/mindustry.html (suffix is ignored)
-  Your index.html is not touched.
+    yoursite.github.io/mindustry-aB3dE9fGh2   -> still loads the same page (suffix is ignored)
+
+  If only name.html.gz exists (for files too big for GitHub), it is downloaded,
+  unzipped in the browser, and shown. Keep the .gz in the repo, NOT the big .html.
 
   BASE    = the folder your site lives in.
             Project site (user.github.io/repo/)  -> "/repo/"
             User site or custom domain (root)    -> "/"
   FOLDERS = places to look for <name>.html, in order. "" is the repo root.
-  Query strings and #hashes are passed through to the loaded page.
 */
 const BASE = "/";                       // <-- "/your-repo-name/" for a project site
 const FOLDERS = ["", "games/", "tools/"];
@@ -43,8 +44,8 @@ function randomId() {
   return out;
 }
 
-// Returns the names to try, in order. The full name is tried first so a real
-// page like "url-redirector" isn't mistaken for "name + 10-character id".
+// Names to try, in order. The full name goes first so a real page like
+// "url-redirector" isn't mistaken for "name + 10-character id".
 function getCandidates() {
   let path = location.pathname;
   if (path.startsWith(BASE)) path = path.slice(BASE.length);
@@ -62,19 +63,47 @@ async function exists(url) {
   catch (e) { return false; }
 }
 
+// Download a .gz, unzip it in the browser, return a blob: URL for an iframe.
+async function loadGzip(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status);
+  const buf = await res.arrayBuffer();
+  const u8 = new Uint8Array(buf);
+  let blob;
+  if (u8[0] === 0x1f && u8[1] === 0x8b) {          // still gzipped: unzip it
+    const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+    blob = await new Response(stream).blob();
+  } else {                                          // server already unzipped it
+    blob = new Blob([buf]);
+  }
+  return URL.createObjectURL(new Blob([blob], { type: "text/html" }));
+}
+
 async function load() {
   const msg = document.getElementById("msg");
   for (const { name, hasId } of getCandidates()) {
     if (!name || name === "404" || name === "index") continue;
     for (const folder of FOLDERS) {
       const file = BASE + folder + name + ".html";
-      if (await exists(file)) {
+      let src = null;
+      try {
+        if (await exists(file)) {
+          src = file + location.search + location.hash;
+        } else if (await exists(file + ".gz")) {
+          msg.textContent = "Downloading and unpacking " + name + "…";
+          src = (await loadGzip(file + ".gz")) + location.hash;
+        }
+      } catch (e) {
+        msg.textContent = "Couldn't load " + name + ": " + e.message;
+        return;
+      }
+      if (src) {
         document.title = name;
         if (!hasId) {
           history.replaceState(null, "", BASE + name + "-" + randomId() + location.search + location.hash);
         }
         const frame = document.createElement("iframe");
-        frame.src = file + location.search + location.hash;
+        frame.src = src;
         frame.allow = "fullscreen; autoplay; gamepad; clipboard-write; encrypted-media; picture-in-picture";
         frame.allowFullscreen = true;
         document.body.replaceChildren(frame);
