@@ -3,15 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Loading…</title>
-<style>
-  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font-family: system-ui, sans-serif; }
-  iframe { border: 0; width: 100%; height: 100%; display: block; }
-  #msg { display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 1rem; }
-</style>
+<title>loading</title>
 </head>
 <body>
-<div id="msg">Loading…</div>
+<div id="msg">loading</div>
 <script>
 /*
   Save as 404.html in the repo root. GitHub Pages serves it for any URL with no real file:
@@ -19,15 +14,15 @@
                                                  and the address bar becomes /mindustry-aB3dE9fGh2
     yoursite.github.io/mindustry-aB3dE9fGh2   -> still loads the same page (suffix is ignored)
 
-  If only name.html.gz exists (for files too big for GitHub), it is downloaded,
-  unzipped in the browser, and shown. Keep the .gz in the repo, NOT the big .html.
+  No stylesheet: the page is plain unstyled text. The only styling is the
+  inline position/size on the iframe, which it needs to fill the window.
 
   BASE    = the folder your site lives in.
             Project site (user.github.io/repo/)  -> "/repo/"
             User site or custom domain (root)    -> "/"
   FOLDERS = places to look for <name>.html, in order. "" is the repo root.
 */
-const BASE = "/";                       // <-- "/your-repo-name/" for a project site
+const BASE = "/";
 const FOLDERS = ["", "games/", "tools/"];
 const ID_LEN = 10;
 const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -90,11 +85,10 @@ async function load() {
         if (await exists(file)) {
           src = file + location.search + location.hash;
         } else if (await exists(file + ".gz")) {
-          msg.textContent = "Downloading and unpacking " + name + "…";
           src = (await loadGzip(file + ".gz")) + location.hash;
         }
       } catch (e) {
-        msg.textContent = "Couldn't load " + name + ": " + e.message;
+        msg.textContent = "error: " + e.message;
         return;
       }
       if (src) {
@@ -103,15 +97,16 @@ async function load() {
           history.replaceState(null, "", BASE + name + "-" + randomId() + location.search + location.hash);
         }
         const frame = document.createElement("iframe");
-        frame.src = src;
+        frame.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;border:0";
         frame.allow = "fullscreen; autoplay; gamepad; clipboard-write; encrypted-media; picture-in-picture";
         frame.allowFullscreen = true;
+        frame.src = src;
         document.body.replaceChildren(frame);
         return;
       }
     }
   }
-  msg.textContent = "Page not found";
+  msg.textContent = "not found";
 }
 load();
 </script>
