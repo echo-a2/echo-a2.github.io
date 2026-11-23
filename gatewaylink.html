@@ -18,7 +18,7 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:6px;p
 a.btn,button{display:inline-block;padding:.7rem 1rem;background:var(--acc);color:#fff;border:0;border-radius:4px;font:inherit;text-decoration:none;cursor:pointer;touch-action:manipulation}
 @media(prefers-color-scheme:dark){a.btn,button{color:#08222a}}
 input{width:100%;min-height:2.75rem;padding:.55rem .65rem;margin:0 0 .6rem;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:4px}
-button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}button+button{margin-left:.5rem}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}button+button{margin-left:.5rem}button:disabled{opacity:.6;cursor:wait}
 .mut{color:var(--mut)}.err{color:var(--bad);min-height:1.5rem}
 a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 </style></head><body><main><h1>Gateway links</h1><section id="app">Loading...</section></main>
@@ -47,19 +47,34 @@ function show(d) {
     '<p class=mut>Updated ' + mins + ' min ago. A green dot means the link answered just now.</p>';
   d.urls.forEach((u, i) => alive(u.url).then(ok => document.getElementById('d' + i).className = 'dot ' + (ok ? 'up' : 'down')));
 }
+// Try the passphrase as typed, then without stray spaces (phone keyboards often add a trailing one).
+async function unlock(box, typed) {
+  if (!(window.crypto && crypto.subtle)) throw new Error('nosubtle');
+  const tries = typed.trim() && typed.trim() !== typed ? [typed, typed.trim()] : [typed];
+  for (const p of tries) { try { return { d: await decrypt(box, p), p }; } catch (e) { if (e.name !== 'OperationError') throw e; } }
+  throw new Error('wrong');
+}
 function ask(box, msg) {
-  app.innerHTML = '<input id=p type=password placeholder="Passphrase" autocomplete=off autocapitalize=off autocorrect=off spellcheck=false><div class=err>' + (msg || '') + '</div><button id=go>Unlock</button><button id=sh class=alt>Show</button>';
-  const go = async () => {
-    const p = document.getElementById('p').value;
-    try { const d = await decrypt(box, p); store.set(p); show(d); } catch (e) { ask(box, 'Wrong passphrase'); }
+  app.innerHTML = '<form id=f><input id=p type=password placeholder="Passphrase" autocomplete=off autocapitalize=off autocorrect=off spellcheck=false enterkeyhint=go>' +
+    '<div class=err id=e>' + (msg || '') + '</div><button id=go type=submit>Unlock</button><button id=sh type=button class=alt>Show</button></form>';
+  const p = document.getElementById('p'), go = document.getElementById('go'), err = document.getElementById('e');
+  // A real form submit works with every mobile keyboard's Go/Enter key, unlike a keydown check.
+  document.getElementById('f').onsubmit = async ev => {
+    ev.preventDefault();
+    if (!p.value) { err.textContent = 'Type the passphrase first'; return; }
+    go.disabled = true; go.textContent = 'Unlocking...'; err.textContent = ''; // key derivation takes a second or two on a phone
+    try { const r = await unlock(box, p.value); store.set(r.p); show(r.d); }
+    catch (e) {
+      ask(box, e.message === 'wrong' ? 'Wrong passphrase' :
+        e.message === 'nosubtle' ? 'This browser cannot decrypt here (it needs https and a recent browser). Try Safari or Chrome.' :
+        'Could not unlock: ' + e.message);
+    }
   };
-  document.getElementById('go').onclick = go;
-  document.getElementById('p').onkeydown = e => e.key === 'Enter' && go();
   document.getElementById('sh').onclick = () => { // plain-text mode helps in webviews where password fields misbehave
-    const i = document.getElementById('p'), hide = i.type === 'password';
-    i.type = hide ? 'text' : 'password'; document.getElementById('sh').textContent = hide ? 'Hide' : 'Show'; i.focus();
+    const hide = p.type === 'password';
+    p.type = hide ? 'text' : 'password'; document.getElementById('sh').textContent = hide ? 'Hide' : 'Show'; p.focus();
   };
-  document.getElementById('p').focus();
+  p.focus();
 }
 (async () => {
   let box;
