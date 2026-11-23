@@ -18,6 +18,7 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:6px;p
 a.btn,button{display:inline-block;padding:.7rem 1rem;background:var(--acc);color:#fff;border:0;border-radius:4px;font:inherit;text-decoration:none;cursor:pointer;touch-action:manipulation}
 @media(prefers-color-scheme:dark){a.btn,button{color:#08222a}}
 input{width:100%;min-height:2.75rem;padding:.55rem .65rem;margin:0 0 .6rem;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:4px}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}button+button{margin-left:.5rem}
 .mut{color:var(--mut)}.err{color:var(--bad);min-height:1.5rem}
 a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 </style></head><body><main><h1>Gateway links</h1><section id="app">Loading...</section></main>
@@ -47,13 +48,18 @@ function show(d) {
   d.urls.forEach((u, i) => alive(u.url).then(ok => document.getElementById('d' + i).className = 'dot ' + (ok ? 'up' : 'down')));
 }
 function ask(box, msg) {
-  app.innerHTML = '<input id=p type=password placeholder="Passphrase" autocomplete=current-password><div class=err>' + (msg || '') + '</div><button id=go>Unlock</button>';
+  app.innerHTML = '<input id=p type=password placeholder="Passphrase" autocomplete=off autocapitalize=off autocorrect=off spellcheck=false><div class=err>' + (msg || '') + '</div><button id=go>Unlock</button><button id=sh class=alt>Show</button>';
   const go = async () => {
     const p = document.getElementById('p').value;
     try { const d = await decrypt(box, p); store.set(p); show(d); } catch (e) { ask(box, 'Wrong passphrase'); }
   };
   document.getElementById('go').onclick = go;
   document.getElementById('p').onkeydown = e => e.key === 'Enter' && go();
+  document.getElementById('sh').onclick = () => { // plain-text mode helps in webviews where password fields misbehave
+    const i = document.getElementById('p'), hide = i.type === 'password';
+    i.type = hide ? 'text' : 'password'; document.getElementById('sh').textContent = hide ? 'Hide' : 'Show'; i.focus();
+  };
+  document.getElementById('p').focus();
 }
 (async () => {
   let box;
