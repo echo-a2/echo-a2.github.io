@@ -39,12 +39,42 @@ function alive(url) { // reachable if the request completes at all (the reply it
   const ctl = new AbortController(); setTimeout(() => ctl.abort(), 7000);
   return fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctl.signal }).then(() => true, () => false);
 }
+let pw = null; // the passphrase that unlocked the list; also proves to the gateway that this is you
+const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+async function resetLinks(d) { // ask the gateway, through any link that still answers, to restart the tunnels
+  const btn = document.getElementById('rs'), note = document.getElementById('rmsg');
+  btn.disabled = true; note.textContent = 'Asking the gateway...';
+  const key = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw.trim() + ':reset')));
+  let ok = false, why = 'None of the links answered. The gateway checks and republishes by itself every few minutes.';
+  for (const u of d.urls) {
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 8000);
+    try {
+      const r = await fetch(u.url.replace(/\/$/, '') + '/api/reset-urls', { method: 'POST', headers: { 'x-reset-key': key }, signal: ctl.signal });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) { ok = true; break; }
+      why = j.error || why;
+    } catch (e) {}
+  }
+  if (!ok) { note.textContent = why; btn.disabled = false; return; }
+  note.textContent = 'Reset started. New links will appear here in a minute or two.';
+  let n = 0; // watch for the republished list
+  const t = setInterval(async () => {
+    if (++n > 24) return clearInterval(t);
+    try {
+      const box = await (await fetch('urls.json?' + Date.now(), { cache: 'no-store' })).json();
+      const nd = box.salt ? await decrypt(box, pw) : box;
+      if (nd.updated !== d.updated) { clearInterval(t); show(nd); }
+    } catch (e) {}
+  }, 15000);
+}
 function show(d) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(d.updated)) / 60000));
   if (!d.urls.length) { app.innerHTML = '<p>Everything is offline right now.</p><p class=mut>Updated ' + mins + ' min ago.</p>'; return; }
   app.innerHTML = d.urls.map((u, i) => '<div class=row><span class=dot id=d' + i + '></span><div>' + u.name +
     '<small>' + u.url + '</small></div><a class=btn href="' + u.url + '">Open</a></div>').join('') +
-    '<p class=mut>Updated ' + mins + ' min ago. A green dot means the link answered just now.</p>';
+    '<p class=mut>Updated ' + mins + ' min ago. A green dot means the link answered just now.</p>' +
+    (pw ? '<p><button id=rs class=alt>Reset links</button> <span id=rmsg class=mut></span></p>' : '');
+  if (pw) document.getElementById('rs').onclick = () => resetLinks(d);
   d.urls.forEach((u, i) => alive(u.url).then(ok => document.getElementById('d' + i).className = 'dot ' + (ok ? 'up' : 'down')));
 }
 // Try the passphrase as typed, then without stray spaces (phone keyboards often add a trailing one).
@@ -63,7 +93,7 @@ function ask(box, msg) {
     ev.preventDefault();
     if (!p.value) { err.textContent = 'Type the passphrase first'; return; }
     go.disabled = true; go.textContent = 'Unlocking...'; err.textContent = ''; // key derivation takes a second or two on a phone
-    try { const r = await unlock(box, p.value); store.set(r.p); show(r.d); }
+    try { const r = await unlock(box, p.value); store.set(r.p); pw = r.p; show(r.d); }
     catch (e) {
       ask(box, e.message === 'wrong' ? 'Wrong passphrase' :
         e.message === 'nosubtle' ? 'This browser cannot decrypt here (it needs https and a recent browser). Try Safari or Chrome.' :
@@ -82,7 +112,7 @@ function ask(box, msg) {
   catch (e) { app.textContent = 'Could not load the list.'; return; }
   if (!box.salt) return show(box);
   const saved = store.get();
-  if (saved) { try { return show(await decrypt(box, saved)); } catch (e) {} }
+  if (saved) { try { const d = await decrypt(box, saved); pw = saved; return show(d); } catch (e) {} }
   ask(box);
 })();
 </script></body></html>
